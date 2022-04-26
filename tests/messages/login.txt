@@ -1,0 +1,2 @@
+{"Header": {"ClientTag": "037cdd43-f28e-4538-8150-0e3e63652301", "MessageBodyType": "OneLoginDefinition", "Url": "/login"}, "CommuniqueType": "UpdateRequest", "Body": {"Login": {"LoginId": "pylutron", "Password": "<REDACTED>", "ContextType": "Application"}}}
+{"CommuniqueType":"UpdateResponse","Header":{"MessageBodyType":"OneLoginDefinition","StatusCode":"200 OK","Url":"/login","ClientTag":"037cdd43-f28e-4538-8150-0e3e63652301"},"Body":{"Login":{"href":"/login","ContextType":"Application","LoginId":"pylutron"}}}
