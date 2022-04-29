@@ -6,6 +6,8 @@ import logging
 import uuid
 from typing import Awaitable, Callable, Dict, List, Tuple
 
+from marshmallow import INCLUDE
+
 from pylutron_leap.api.enum import CommuniqueType
 from pylutron_leap.api.message import LeapMessage
 from pylutron_leap.exception import SessionDisconnectedError
@@ -78,7 +80,9 @@ class LeapProtocol:
             _resp_dict: Dict[str, str | Dict] = json.loads(_received.decode("UTF-8"))
 
             if isinstance(_resp_dict, dict):
-                msg: LeapMessage = LeapMessage.Schema().load(_resp_dict)
+                msg: LeapMessage = LeapMessage.Schema().load(
+                    _resp_dict, unknown=INCLUDE, partial=True
+                )
                 tag = msg.Header.ClientTag
                 if tag is not None:
                     in_flight = self._in_flight_requests.pop(tag, None)

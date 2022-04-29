@@ -14,7 +14,11 @@ from pylutron_leap.api.area import (
 )
 from pylutron_leap.api.button import LeapButtonBody, LeapButtonStatusBody
 from pylutron_leap.api.command import LeapCommandBody
-from pylutron_leap.api.device import LeapDeviceBody, LeapMultiDeviceBody
+from pylutron_leap.api.device import (
+    LeapDeviceBody,
+    LeapMultiDeviceBody,
+    LeapMultiDeviceDefinitionBody,
+)
 from pylutron_leap.api.emergency import LeapEmergencyBody, LeapMultiEmergencyBody
 from pylutron_leap.api.enum import CommuniqueType, MessageBodyTypeEnum
 from pylutron_leap.api.loadshed import LeapLoadShedBody
@@ -157,10 +161,10 @@ class LeapMessage:
             LeapExceptionBody,
             LeapLoadShedBody,
             LeapLoginBody,
-            LeapMasterDeviceListBody,
             LeapMultiAreaDefinitionBody,
             LeapMultiAreaStatusBody,
             LeapMultiDeviceBody,
+            LeapMultiDeviceDefinitionBody,
             LeapMultiEmergencyBody,
             LeapMultiOccupancySensorBody,
             LeapMultiZoneBody,
@@ -196,7 +200,7 @@ class LeapMessage:
     def related_ids(self) -> list[int]:
         _ids: list[int] = []
         _id = id_from_href(self.Header.Url or "")
-        logger.debug("id from header: {_id}")
+        logger.debug(f"id from header: {_id}")
         if _id is not None:
             _ids.append(_id)
 

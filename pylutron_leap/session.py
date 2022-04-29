@@ -3,6 +3,7 @@ import logging
 import ssl
 import sys
 from functools import partial
+from pathlib import Path
 from typing import Awaitable, Callable, Dict, Iterable, List, Optional, Tuple, cast
 
 from pylutron_leap.models import BaseModel
@@ -42,6 +43,7 @@ PING_INTERVAL = 60.0
 CONNECT_TIMEOUT = 5.0
 REQUEST_TIMEOUT = 5.0
 RECONNECT_DELAY = 2.0
+LEAP_PORT = 8081
 
 
 MessageCallback = Callable[[LeapMessage], Awaitable[None]]
@@ -51,17 +53,23 @@ class LeapSession(object):
     def __init__(
         self,
         host: str,
-        port: int = 8081,
+        port: int = LEAP_PORT,
+        keyfile: Optional[Path] = None,
+        certfile: Optional[Path] = None,
+        ca_chain: Optional[Path] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
         verify_tls: Optional[bool] = False,
     ):
-        self.config: Dict[str, Optional[Union[str, int, bool]]] = {
+        self.config: Dict[str, Optional[str | int | bool | Path]] = {
             "host": host,
             "port": port,
             "username": username,
             "password": password,
             "verify_tls": verify_tls,
+            "keyfile": keyfile,
+            "certfile": certfile,
+            "ca_chain": ca_chain,
         }
 
         self._login_task: Optional[asyncio.Task] = None
@@ -150,10 +158,28 @@ class LeapSession(object):
     async def _connect(self):
         # TODO: Make context options configurable maybe
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        # ssl_context.load_verify_locations(ca_certs)
-        # ssl_context.load_cert_chain(certfile, keyfile)
-        # ssl_context.verify_mode = ssl.CERT_REQUIRED
-        ssl_context.verify_mode = ssl.CERT_NONE
+
+        ssl_context.verify_mode = ssl.CERT_REQUIRED
+        ssl_context.check_hostname = True
+
+        if self.config["verify_tls"] is False:
+            ssl_context.verify_mode = ssl.CERT_NONE
+            ssl_context.check_hostname = False
+
+        if self.config.get("ca_chain", None):
+            ssl_context.load_verify_locations(self.config["ca_chain"])
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+        if self.config.get("keyfile", None) or self.config.get("certfile", None):
+            if not (
+                self.config.get("keyfile", None) and self.config.get("certfile", None)
+            ):
+                logger.error("Both keyfile and certfile are required for TLS auth!")
+                raise ValueError("Both keyfile and certfile are required for TLS auth!")
+            else:
+                ssl_context.load_cert_chain(
+                    self.config["certfile"], self.config["keyfile"]
+                )
 
         self._leap = await open_connection(
             host=self.config["host"],
@@ -210,13 +236,18 @@ class LeapSession(object):
         await self.handle_response(response)
         logger.debug("Subscribed to areas")
 
-        # Subscribe to occupancygroup status events, this isn't supported on RA3
+        # TODO: Once all areas have been populated, need to:
+        #  - get area definition: `/area/XXX`
+        #  - enumerate zones for each area:  `/area/XXX/associatedzone`
+
+        # Subscribe to occupancygroup status events
         _msg = get_all_occupancy_subscribe()
         _resp, sub_tag = await self.subscribe(
             _msg, partial(handle_response_session, self)
         )
 
-        # Enumerate Zones
+        # Enumerate Devices
+        # TODO: Implement "associated-object" lookups
         logger.debug("Query processor information")
         _msg = get_connected_processor()
         response = await self._leap.request(_msg)
@@ -337,13 +368,10 @@ class LeapSession(object):
 
         if Area.can_handle_response(response):
             Area.handle_response(self, response)
-        elif Zone.can_handle_response(response):
-            Zone.handle_response(self, response)
         elif Device.can_handle_response(response):
             Device.handle_response(self, response)
-
-        # for obj in filter(lambda x: x.leap_id in _related_ids, self.models):
-        #     obj.handle_response(self, response)
+        elif Zone.can_handle_response(response):
+            Zone.handle_response(self, response)
 
     def close(self):
         self.leap.close()

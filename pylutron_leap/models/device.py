@@ -15,7 +15,7 @@ from pylutron_leap.api.device import (
     FirmwareImageDefn,
     LeapDeviceBody,
     LeapMultiDeviceBody,
-    LeapMultiDeviceDefnBody,
+    LeapMultiDeviceDefinitionBody,
     LinkInfo,
     Transfers,
 )
@@ -48,13 +48,16 @@ class Device(BaseModel):
         self._sort: Optional[int] = None
         self._leaf: Optional[bool] = None
 
+        self.area_id: Optional[int] = None
+        self.zone_ids: List[int] = []
+
         # Device Definition Fields
         self.addressed_state: Optional[str] = None
         self.databases: Optional[Sequence[DatabaseInfo]] = None
         self.device_firmware_package: Optional[DeviceFirmwarePackageDefn] = None
         self.device_rules: Optional[Sequence[HRef]] = None
         self.device_type: Optional[str] = None
-        self.firmware_image: Optional[FirmwareImageDefn] = None
+        self.firmware_image: Optional[FirmwareImageDefn | HRef] = None
         self.link_nodes: Optional[Sequence[HRef]] = None
         self.model_number: Optional[str] = None
         self.owned_links: Optional[Sequence[LinkInfo]] = None
@@ -74,15 +77,22 @@ class Device(BaseModel):
         self.associated_area: Optional[Area] = None
         self.local_zones: Dict[int, Zone] = {}
 
+    def __repr__(self) -> str:
+        return f"Device <Name: {self.name}, ID: {self.leap_id}>"
+
     @classmethod
     def get_or_create_device(cls, session: LeapSession, leap_id: int) -> Device:
         _devices = list(filter(lambda x: x.leap_id == leap_id, session.devices))
         if len(_devices):
             assert len(_devices) == 1
+            logger.debug(f"Found device: {_devices[0]}")
+
             return _devices[0]
         else:
             _device = Device(leap_id, session)
             session.models.append(_device)
+            logger.debug(f"Created new device: {_device}")
+
             return _device
 
     def _update_status(self, status: DeviceStatusType) -> None:
@@ -125,14 +135,20 @@ class Device(BaseModel):
         if defn.AssociatedArea is not None:
             _id = id_from_href(defn.AssociatedArea.href)
             if _id is not None:
-                self.associated_area = Area.get_or_create_area(self.session, _id)
+                # This is doing something weird and never returning
+                # self.associated_area = Area.get_or_create_area(self.session, _id)
+                self.area_id = _id
         if defn.LocalZones is not None:
             for entry in defn.LocalZones:
                 _id = id_from_href(entry.href)
                 if _id is not None:
-                    _zone = Zone.get_or_create_zone(self.session, _id)
-                    _zone.device = self
-                    self.local_zones[_id] = _zone
+                    self.zone_ids.append(_id)
+                    # I doubt this is going to work, due to whatever is happening with area above
+                    # _zone = Zone.get_or_create_zone(self.session, _id)
+                    # _zone.device = self
+                    # self.local_zones[_id] = _zone
+
+        logger.debug(f"Device defn updated {self}")
 
     @classmethod
     def can_handle_response(cls, response: LeapMessage) -> bool:
@@ -146,11 +162,12 @@ class Device(BaseModel):
         _ids: list[int]
         _device: Device
         entry: DeviceDefinition | DeviceStatusType
-        _body: LeapMultiDeviceBody | LeapMultiDeviceDefnBody
+        _body: LeapMultiDeviceBody | LeapMultiDeviceDefinitionBody
 
         _updated_devices: List[Device] = []
 
         if response.Header.MessageBodyType == MessageBodyTypeEnum.OneDeviceStatus:
+            logger.debug("Processing OneDeviceStatus")
 
             _ids = response.related_ids()
             assert len(_ids) == 1
@@ -163,6 +180,8 @@ class Device(BaseModel):
         elif (
             response.Header.MessageBodyType == MessageBodyTypeEnum.MultipleDeviceStatus
         ):
+            logger.debug("Processing MultipleDeviceStatus")
+
             _body = cast(LeapMultiDeviceBody, response.Body)
             for entry in _body.DeviceStatuses:
                 _ids = entry.related_ids()
@@ -177,14 +196,18 @@ class Device(BaseModel):
             response.Header.MessageBodyType
             == MessageBodyTypeEnum.MultipleDeviceDefinition
         ):
-            _body = cast(LeapMultiDeviceDefnBody, response.Body)
+            logger.debug("Processing MultipleDeviceDefinition")
+            _body = cast(LeapMultiDeviceDefinitionBody, response.Body)
             for entry in _body.Devices:
                 _ids = entry.related_ids()
+                logger.debug(f"Processing device {_ids}")
                 assert len(_ids) == 1
 
                 _device = cls.get_or_create_device(session, _ids[0])
                 _device._update_definition(entry)
 
                 _updated_devices.append(_device)
+
+            logger.debug("Completed MultipleDeviceDefinition")
 
         return _updated_devices
